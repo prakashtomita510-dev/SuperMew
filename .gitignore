@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+**/.venv*/
+**/venv*/
+.env
+
+# Node modules (Frontend)
+node_modules/
+**/node_modules/
+
+# Database and cache
+*.db
+*.sqlite
+.ipynb_checkpoints/
+
+# Docker files
+volumes/
+
+# OS files
+.DS_Store
+data/
