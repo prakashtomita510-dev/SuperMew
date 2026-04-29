@@ -46,6 +46,22 @@ milvus_writer = MilvusWriter(embedding_service=embedding_service, milvus_manager
 router = APIRouter()
 
 
+def _rebuild_bm25_state_from_vector_store():
+    """让稀疏检索状态与当前 Milvus 中的叶子块保持一致。"""
+    try:
+        existing_docs = milvus_manager.query(
+            filter_expr="chunk_level == 3",
+            output_fields=["text"],
+            limit=100000,
+        )
+        texts = [item.get("text", "") for item in existing_docs if item.get("text")]
+        embedding_service.fit_corpus(texts)
+        embedding_service.save_state()
+    except Exception:
+        # 文档管理接口不因为 BM25 重建失败而中断主流程，交给运行日志排查。
+        pass
+
+
 @router.post("/auth/register", response_model=AuthResponse)
 async def register(request: RegisterRequest, db: Session = Depends(get_db)):
     username = (request.username or "").strip()
@@ -251,6 +267,7 @@ async def upload_document(file: UploadFile = File(...), _: User = Depends(requir
 
         parent_chunk_store.upsert_documents(parent_docs)
         milvus_writer.write_documents(leaf_docs)
+        _rebuild_bm25_state_from_vector_store()
 
         return DocumentUploadResponse(
             filename=filename,
@@ -275,6 +292,7 @@ async def delete_document(filename: str, _: User = Depends(require_admin)):
         delete_expr = f'filename == "{filename}"'
         result = milvus_manager.delete(delete_expr)
         parent_chunk_store.delete_by_filename(filename)
+        _rebuild_bm25_state_from_vector_store()
 
         return DocumentDeleteResponse(
             filename=filename,

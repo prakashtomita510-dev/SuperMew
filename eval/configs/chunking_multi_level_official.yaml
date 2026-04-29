@@ -1,0 +1,14 @@
+{
+  "name": "chunking_multi_level_official",
+  "kind": "chunking",
+  "dataset": "custom",
+  "variant": "multi_level",
+  "seed": 42,
+  "output_dir": "eval/outputs/chunking",
+  "params": {
+    "chunk_strategy": "multi_level",
+    "leaf_retrieve_level": 3,
+    "auto_merge_enabled": false
+  },
+  "tags": ["official", "baseline"]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "latency_eval",
+  "kind": "latency",
+  "dataset": "custom",
+  "variant": "sse_trace",
+  "seed": 42,
+  "output_dir": "eval/outputs/latency",
+  "params": {
+    "sample_limit": 30,
+    "repeats": 3,
+    "modes": ["sync", "sse_answer", "sse_trace"],
+    "measure_ttft": true,
+    "measure_ttfm": true
+  },
+  "tags": ["official", "baseline"]
+}
+

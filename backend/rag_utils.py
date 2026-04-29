@@ -37,6 +37,10 @@ def _get_rerank_endpoint() -> str:
     return host if host.endswith("/v1/rerank") else f"{host}/v1/rerank"
 
 
+def _get_vector_backend() -> str:
+    return "mock_milvus" if _milvus_manager.use_mock else "milvus"
+
+
 def _merge_to_parent_level(docs: List[dict], threshold: int = 2) -> Tuple[List[dict], int]:
     groups: Dict[str, List[dict]] = defaultdict(list)
     for doc in docs:
@@ -79,44 +83,57 @@ def _merge_to_parent_level(docs: List[dict], threshold: int = 2) -> Tuple[List[d
     return deduped, merged_count
 
 
-def _auto_merge_documents(docs: List[dict], top_k: int) -> Tuple[List[dict], Dict[str, Any]]:
-    if not AUTO_MERGE_ENABLED or not docs:
+def _auto_merge_documents(
+    docs: List[dict],
+    top_k: int,
+    enabled_override: bool | None = None,
+    threshold_override: int | None = None,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    enabled = AUTO_MERGE_ENABLED if enabled_override is None else enabled_override
+    threshold = AUTO_MERGE_THRESHOLD if threshold_override is None else threshold_override
+    if not enabled or not docs:
         return docs[:top_k], {
-            "auto_merge_enabled": AUTO_MERGE_ENABLED,
+            "auto_merge_enabled": enabled,
             "auto_merge_applied": False,
-            "auto_merge_threshold": AUTO_MERGE_THRESHOLD,
+            "auto_merge_threshold": threshold,
             "auto_merge_replaced_chunks": 0,
             "auto_merge_steps": 0,
         }
 
     # 两段自动合并：L3->L2，再 L2->L1。
-    merged_docs, merged_count_l3_l2 = _merge_to_parent_level(docs, threshold=AUTO_MERGE_THRESHOLD)
-    merged_docs, merged_count_l2_l1 = _merge_to_parent_level(merged_docs, threshold=AUTO_MERGE_THRESHOLD)
+    merged_docs, merged_count_l3_l2 = _merge_to_parent_level(docs, threshold=threshold)
+    merged_docs, merged_count_l2_l1 = _merge_to_parent_level(merged_docs, threshold=threshold)
 
     merged_docs.sort(key=lambda item: item.get("score", 0.0), reverse=True)
     merged_docs = merged_docs[:top_k]
 
     replaced_count = merged_count_l3_l2 + merged_count_l2_l1
     return merged_docs, {
-        "auto_merge_enabled": AUTO_MERGE_ENABLED,
+        "auto_merge_enabled": enabled,
         "auto_merge_applied": replaced_count > 0,
-        "auto_merge_threshold": AUTO_MERGE_THRESHOLD,
+        "auto_merge_threshold": threshold,
         "auto_merge_replaced_chunks": replaced_count,
         "auto_merge_steps": int(merged_count_l3_l2 > 0) + int(merged_count_l2_l1 > 0),
     }
 
 
-def _rerank_documents(query: str, docs: List[dict], top_k: int) -> Tuple[List[dict], Dict[str, Any]]:
+def _rerank_documents(
+    query: str,
+    docs: List[dict],
+    top_k: int,
+    enabled_override: bool | None = None,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    enabled = bool(RERANK_MODEL and RERANK_API_KEY and RERANK_BINDING_HOST) if enabled_override is None else enabled_override
     docs_with_rank = [{**doc, "rrf_rank": i} for i, doc in enumerate(docs, 1)]
     meta: Dict[str, Any] = {
-        "rerank_enabled": bool(RERANK_MODEL and RERANK_API_KEY and RERANK_BINDING_HOST),
+        "rerank_enabled": enabled,
         "rerank_applied": False,
         "rerank_model": RERANK_MODEL,
         "rerank_endpoint": _get_rerank_endpoint(),
         "rerank_error": None,
         "candidate_count": len(docs_with_rank),
     }
-    if not docs_with_rank or not meta["rerank_enabled"]:
+    if not docs_with_rank or not enabled:
         return docs_with_rank[:top_k], meta
 
     payload = {
@@ -243,25 +260,79 @@ def step_back_expand(query: str) -> dict:
     }
 
 
-def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
-    candidate_k = max(top_k * 3, top_k)
-    filter_expr = f"chunk_level == {LEAF_RETRIEVE_LEVEL}"
+def retrieve_documents(
+    query: str,
+    top_k: int = 5,
+    retrieval_mode: str | None = None,
+    rerank_enabled: bool | None = None,
+    auto_merge_enabled: bool | None = None,
+    candidate_k: int | None = None,
+    leaf_retrieve_level: int | None = None,
+    auto_merge_threshold: int | None = None,
+    hybrid_weights: list[float] | None = None,
+) -> Dict[str, Any]:
+    requested_mode = retrieval_mode or os.getenv("RAG_RETRIEVAL_MODE", "hybrid")
+    effective_candidate_k = candidate_k if isinstance(candidate_k, int) and candidate_k > 0 else max(top_k * 3, top_k)
+    effective_leaf_level = leaf_retrieve_level if isinstance(leaf_retrieve_level, int) and leaf_retrieve_level > 0 else LEAF_RETRIEVE_LEVEL
+    filter_expr = f"chunk_level == {effective_leaf_level}"
+    
+    # Try to extract page number from query to improve precision for page-specific questions
+    import re
+    page_match = re.search(r'(?:page|第)\s*(\d+)\s*(?:页)?', query, re.IGNORECASE)
+    if page_match:
+        pnum = page_match.group(1)
+        filter_expr = f"{filter_expr} && page_number == {pnum}"
+        
     try:
-        dense_embeddings = _embedding_service.get_embeddings([query])
-        dense_embedding = dense_embeddings[0]
-        sparse_embedding = _embedding_service.get_sparse_embedding(query)
+        dense_embedding = None
+        sparse_embedding = None
 
-        retrieved = _milvus_manager.hybrid_retrieve(
-            dense_embedding=dense_embedding,
-            sparse_embedding=sparse_embedding,
-            top_k=candidate_k,
-            filter_expr=filter_expr,
+        if requested_mode == "dense":
+            dense_embeddings = _embedding_service.get_embeddings([query])
+            dense_embedding = dense_embeddings[0]
+            retrieved = _milvus_manager.dense_retrieve(
+                dense_embedding=dense_embedding,
+                top_k=effective_candidate_k,
+                filter_expr=filter_expr,
+            )
+            effective_mode = "dense"
+        elif requested_mode == "sparse":
+            sparse_embedding = _embedding_service.get_sparse_embedding(query)
+            retrieved = _milvus_manager.sparse_retrieve(
+                sparse_embedding=sparse_embedding,
+                top_k=effective_candidate_k,
+                filter_expr=filter_expr,
+            )
+            effective_mode = "sparse"
+        else:
+            dense_embeddings = _embedding_service.get_embeddings([query])
+            dense_embedding = dense_embeddings[0]
+            sparse_embedding = _embedding_service.get_sparse_embedding(query)
+            retrieved = _milvus_manager.hybrid_retrieve(
+                dense_embedding=dense_embedding,
+                sparse_embedding=sparse_embedding,
+                top_k=effective_candidate_k,
+                weights=hybrid_weights,
+                filter_expr=filter_expr,
+            )
+            effective_mode = "hybrid"
+
+        reranked, rerank_meta = _rerank_documents(
+            query=query,
+            docs=retrieved,
+            top_k=top_k,
+            enabled_override=rerank_enabled,
         )
-        reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
-        merged_docs, merge_meta = _auto_merge_documents(docs=reranked, top_k=top_k)
-        rerank_meta["retrieval_mode"] = "hybrid"
-        rerank_meta["candidate_k"] = candidate_k
-        rerank_meta["leaf_retrieve_level"] = LEAF_RETRIEVE_LEVEL
+        merged_docs, merge_meta = _auto_merge_documents(
+            docs=reranked,
+            top_k=top_k,
+            enabled_override=auto_merge_enabled,
+            threshold_override=auto_merge_threshold,
+        )
+        rerank_meta["retrieval_mode"] = effective_mode
+        rerank_meta["vector_backend"] = _get_vector_backend()
+        rerank_meta["candidate_k"] = effective_candidate_k
+        rerank_meta["leaf_retrieve_level"] = effective_leaf_level
         rerank_meta.update(merge_meta)
         return {"docs": merged_docs, "meta": rerank_meta}
     except Exception:
@@ -270,14 +341,25 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
             dense_embedding = dense_embeddings[0]
             retrieved = _milvus_manager.dense_retrieve(
                 dense_embedding=dense_embedding,
-                top_k=candidate_k,
+                top_k=effective_candidate_k,
                 filter_expr=filter_expr,
             )
-            reranked, rerank_meta = _rerank_documents(query=query, docs=retrieved, top_k=top_k)
-            merged_docs, merge_meta = _auto_merge_documents(docs=reranked, top_k=top_k)
+            reranked, rerank_meta = _rerank_documents(
+                query=query,
+                docs=retrieved,
+                top_k=top_k,
+                enabled_override=rerank_enabled,
+            )
+            merged_docs, merge_meta = _auto_merge_documents(
+                docs=reranked,
+                top_k=top_k,
+                enabled_override=auto_merge_enabled,
+                threshold_override=auto_merge_threshold,
+            )
             rerank_meta["retrieval_mode"] = "dense_fallback"
-            rerank_meta["candidate_k"] = candidate_k
-            rerank_meta["leaf_retrieve_level"] = LEAF_RETRIEVE_LEVEL
+            rerank_meta["vector_backend"] = _get_vector_backend()
+            rerank_meta["candidate_k"] = effective_candidate_k
+            rerank_meta["leaf_retrieve_level"] = effective_leaf_level
             rerank_meta.update(merge_meta)
             return {"docs": merged_docs, "meta": rerank_meta}
         except Exception:
@@ -290,13 +372,75 @@ def retrieve_documents(query: str, top_k: int = 5) -> Dict[str, Any]:
                     "rerank_endpoint": _get_rerank_endpoint(),
                     "rerank_error": "retrieve_failed",
                     "retrieval_mode": "failed",
-                    "candidate_k": candidate_k,
-                    "leaf_retrieve_level": LEAF_RETRIEVE_LEVEL,
-                    "auto_merge_enabled": AUTO_MERGE_ENABLED,
+                    "vector_backend": _get_vector_backend(),
+                    "candidate_k": effective_candidate_k,
+                    "leaf_retrieve_level": effective_leaf_level,
+                    "auto_merge_enabled": AUTO_MERGE_ENABLED if auto_merge_enabled is None else auto_merge_enabled,
                     "auto_merge_applied": False,
-                    "auto_merge_threshold": AUTO_MERGE_THRESHOLD,
+                    "auto_merge_threshold": AUTO_MERGE_THRESHOLD if auto_merge_threshold is None else auto_merge_threshold,
                     "auto_merge_replaced_chunks": 0,
                     "auto_merge_steps": 0,
                     "candidate_count": 0,
                 },
             }
+
+def batch_retrieve_documents(
+    queries: List[str],
+    top_k: int = 5,
+    retrieval_mode: str | None = None,
+    rerank_enabled: bool | None = None,
+    auto_merge_enabled: bool | None = None,
+    candidate_k: int | None = None,
+    leaf_retrieve_level: int | None = None,
+    auto_merge_threshold: int | None = None,
+    hybrid_weights: list[float] | None = None,
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve documents for multiple queries in batch to optimize embedding API calls.
+    """
+    if not queries:
+        return []
+
+    requested_mode = retrieval_mode or os.getenv("RAG_RETRIEVAL_MODE", "hybrid")
+    effective_candidate_k = candidate_k if isinstance(candidate_k, int) and candidate_k > 0 else max(top_k * 3, top_k)
+    effective_leaf_level = leaf_retrieve_level if isinstance(leaf_retrieve_level, int) and leaf_retrieve_level > 0 else LEAF_RETRIEVE_LEVEL
+    
+    import re
+    all_results = []
+
+    try:
+        # 1. Batch get embeddings
+        dense_embeddings = None
+        if requested_mode in ("dense", "hybrid"):
+            dense_embeddings = _embedding_service.get_embeddings(queries)
+        
+        # 2. Retrieve for each query
+        for i, query in enumerate(queries):
+            filter_expr = f"chunk_level == {effective_leaf_level}"
+            page_match = re.search(r'(?:page|第)\s*(\d+)\s*(?:页)?', query, re.IGNORECASE)
+            if page_match:
+                pnum = page_match.group(1)
+                filter_expr = f"{filter_expr} && page_number == {pnum}"
+            
+            dense_vec = dense_embeddings[i] if dense_embeddings else None
+            sparse_vec = _embedding_service.get_sparse_embedding(query) if requested_mode in ("sparse", "hybrid") else None
+            
+            if requested_mode == "dense":
+                retrieved = _milvus_manager.dense_retrieve(dense_vec, top_k=effective_candidate_k, filter_expr=filter_expr)
+            elif requested_mode == "sparse":
+                retrieved = _milvus_manager.sparse_retrieve(sparse_vec, top_k=effective_candidate_k, filter_expr=filter_expr)
+            else:
+                retrieved = _milvus_manager.hybrid_retrieve(dense_vec, sparse_vec, top_k=effective_candidate_k, weights=hybrid_weights, filter_expr=filter_expr)
+            
+            reranked, rerank_meta = _rerank_documents(query, retrieved, top_k, enabled_override=rerank_enabled)
+            merged_docs, merge_meta = _auto_merge_documents(reranked, top_k, enabled_override=auto_merge_enabled, threshold_override=auto_merge_threshold)
+            
+            rerank_meta.update(merge_meta)
+            rerank_meta["retrieval_mode"] = requested_mode
+            all_results.append({"docs": merged_docs, "meta": rerank_meta})
+            
+        return all_results
+    except Exception as e:
+        # Fallback to single-threaded if batch fails for some reason
+        print(f"⚠️ Batch retrieval failed: {e}, falling back to sequential.")
+        return [retrieve_documents(q, top_k, requested_mode, rerank_enabled, auto_merge_enabled, candidate_k, effective_leaf_level, auto_merge_threshold, hybrid_weights) for q in queries]

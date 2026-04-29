@@ -1,0 +1,1 @@
+{"name": "lat_stream", "kind": "latency_test", "dataset": "custom", "variant": "stream", "params": {"retrieval_mode": "hybrid", "stream": true}}

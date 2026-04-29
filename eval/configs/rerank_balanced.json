@@ -1,0 +1,1 @@
+{"name": "rerank_balanced", "kind": "rerank_tune", "dataset": "custom", "variant": "balanced", "params": {"retrieval_mode": "hybrid", "rerank_enabled": true, "candidate_k": 50}}

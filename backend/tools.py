@@ -1,5 +1,6 @@
 from typing import Optional
 import os
+import time
 import requests
 from dotenv import load_dotenv
 try:
@@ -17,6 +18,7 @@ _KNOWLEDGE_TOOL_CALLS_THIS_TURN = 0
 _SEARCH_TOOL_CALLS_THIS_TURN = 0
 _RAG_STEP_QUEUE = None
 _RAG_STEP_LOOP = None   # asyncio loop, captured when setting queue
+_RAG_REQUEST_ID = None
 
 
 def _set_last_rag_context(context: dict):
@@ -40,10 +42,16 @@ def reset_tool_call_guards():
     _SEARCH_TOOL_CALLS_THIS_TURN = 0
 
 
-def set_rag_step_queue(queue):
+def set_rag_request_context(request_id: Optional[str]):
+    global _RAG_REQUEST_ID
+    _RAG_REQUEST_ID = request_id
+
+
+def set_rag_step_queue(queue, request_id: Optional[str] = None):
     """设置 RAG 步骤队列，并捕获当前事件循环以便跨线程调度。"""
-    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP
+    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP, _RAG_REQUEST_ID
     _RAG_STEP_QUEUE = queue
+    _RAG_REQUEST_ID = request_id
     if queue:
         import asyncio
         try:
@@ -56,9 +64,15 @@ def set_rag_step_queue(queue):
 
 def emit_rag_step(icon: str, label: str, detail: str = ""):
     """向队列发送一个 RAG 检索步骤。支持跨线程安全调用。"""
-    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP
+    global _RAG_STEP_QUEUE, _RAG_STEP_LOOP, _RAG_REQUEST_ID
     if _RAG_STEP_QUEUE is not None and _RAG_STEP_LOOP is not None:
-        step = {"icon": icon, "label": label, "detail": detail}
+        step = {
+            "icon": icon,
+            "label": label,
+            "detail": detail,
+            "request_id": _RAG_REQUEST_ID,
+            "emitted_at_ms": round(time.perf_counter() * 1000, 2),
+        }
         try:
             if not _RAG_STEP_LOOP.is_closed():
                 _RAG_STEP_LOOP.call_soon_threadsafe(_RAG_STEP_QUEUE.put_nowait, step)
@@ -145,6 +159,8 @@ def search_knowledge_base(query: str) -> str:
     answer = rag_result.get("answer", "") if isinstance(rag_result, dict) else ""
     rag_trace = rag_result.get("rag_trace", {}) if isinstance(rag_result, dict) else {}
     if rag_trace:
+        if _RAG_REQUEST_ID:
+            rag_trace["request_id"] = _RAG_REQUEST_ID
         _set_last_rag_context({"rag_trace": rag_trace})
 
     if not answer or "don't know" in answer.lower():
@@ -156,6 +172,9 @@ def search_knowledge_base(query: str) -> str:
 @tool("internet_crawler_search")
 def internet_crawler_search(query: str) -> str:
     """Search the internet for real-time information using an external crawler."""
+    if os.getenv("DISABLE_INTERNET_CRAWLER_SEARCH", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return "Web search is disabled for the current evaluation run."
+
     global _SEARCH_TOOL_CALLS_THIS_TURN
     if _SEARCH_TOOL_CALLS_THIS_TURN >= 1:
         return "ERROR: internet_crawler_search has already been called in this turn. Use existing results or inform user if info is missing."

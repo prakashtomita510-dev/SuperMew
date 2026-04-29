@@ -1,0 +1,14 @@
+{
+  "name": "rewrite_hyde_official",
+  "kind": "rewrite",
+  "dataset": "custom",
+  "variant": "always_hyde",
+  "seed": 42,
+  "output_dir": "eval/outputs/rewrite",
+  "params": {
+    "rewrite_mode": "always_hyde",
+    "auto_merge_enabled": false,
+    "auto_merge_threshold": 2
+  },
+  "tags": ["official", "comparison"]
+}

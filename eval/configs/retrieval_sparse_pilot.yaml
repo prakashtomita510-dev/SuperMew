@@ -1,0 +1,16 @@
+{
+  "name": "retrieval_sparse_pilot",
+  "kind": "retrieval",
+  "dataset": "lotte",
+  "variant": "sparse_only",
+  "seed": 42,
+  "output_dir": "eval/outputs/retrieval_pilot",
+  "params": {
+    "candidate_k": 20,
+    "top_k": 5,
+    "rerank_enabled": false,
+    "auto_merge_enabled": false,
+    "retrieval_mode": "sparse"
+  },
+  "tags": ["pilot", "baseline"]
+}

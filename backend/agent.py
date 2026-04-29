@@ -5,17 +5,19 @@ import asyncio
 from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk, SystemMessage
-from tools import get_current_weather, search_knowledge_base, internet_crawler_search, get_last_rag_context, reset_tool_call_guards, set_rag_step_queue
+from tools import get_current_weather, search_knowledge_base, internet_crawler_search, get_last_rag_context, reset_tool_call_guards, set_rag_request_context, set_rag_step_queue
 from datetime import datetime
 from cache import cache
 from database import SessionLocal
 from models import User, ChatSession, ChatMessage
+from uuid import uuid4
 
 load_dotenv()
 
 API_KEY = os.getenv("ARK_API_KEY")
 MODEL = os.getenv("MODEL")
 BASE_URL = os.getenv("BASE_URL")
+DISABLE_INTERNET_CRAWLER_SEARCH = os.getenv("DISABLE_INTERNET_CRAWLER_SEARCH", "").strip().lower() in {"1", "true", "yes", "on"}
 
 class ConversationStorage:
     """对话存储（PostgreSQL + Redis）。"""
@@ -217,17 +219,28 @@ def create_agent_instance():
         stream_usage=True,
     )
 
+    enabled_tools = [get_current_weather, search_knowledge_base]
+    if not DISABLE_INTERNET_CRAWLER_SEARCH:
+        enabled_tools.append(internet_crawler_search)
+
+    system_prompt = (
+        f"You are a cat bot helper. The current date is {datetime.now().strftime('%Y-%m-%d')}. "
+        "Use search_knowledge_base for internal documents. "
+    )
+    if not DISABLE_INTERNET_CRAWLER_SEARCH:
+        system_prompt += "Use internet_crawler_search for real-time internet info. "
+    else:
+        system_prompt += "Internet search is disabled for this run, so answer using the knowledge base and conversation context only. "
+    system_prompt += (
+        "After calling a tool, you MUST synthesize the results and provide the Final Answer. "
+        "Do not call the same tool with the same query more than once. "
+        "If you still don't know after searching, admit it honestly."
+    )
+
     agent = create_agent(
         model=model,
-        tools=[get_current_weather, search_knowledge_base, internet_crawler_search],
-        system_prompt=(
-            f"You are a cat bot helper. The current date is {datetime.now().strftime('%Y-%m-%d')}. "
-            "Use search_knowledge_base for internal documents. "
-            "Use internet_crawler_search for real-time internet info. "
-            "After calling a tool, you MUST synthesize the results and provide the Final Answer. "
-            "Do not call the same tool with the same query more than once. "
-            "If you still don't know after searching, admit it honestly."
-        ),
+        tools=enabled_tools,
+        system_prompt=system_prompt,
     )
     return agent, model
 
@@ -256,11 +269,13 @@ def summarize_old_messages(model, messages: list) -> str:
 
 def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: str = "default_session"):
     """使用 Agent 处理用户消息并返回响应"""
+    request_id = uuid4().hex
     messages = storage.load(user_id, session_id)
 
     # 清理可能残留的 RAG 上下文，避免跨请求污染
     get_last_rag_context(clear=True)
     reset_tool_call_guards()
+    set_rag_request_context(request_id)
     
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
@@ -270,10 +285,13 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
         ] + messages[40:]
 
     messages.append(HumanMessage(content=user_text))
-    result = agent.invoke(
-        {"messages": messages},
-        config={"recursion_limit": 30},
-    )
+    try:
+        result = agent.invoke(
+            {"messages": messages},
+            config={"recursion_limit": 30},
+        )
+    finally:
+        set_rag_request_context(None)
 
     response_content = ""
     if isinstance(result, dict):
@@ -293,6 +311,8 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
 
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
+    if rag_trace:
+        rag_trace["request_id"] = request_id
 
     extra_message_data = [None] * (len(messages) - 1) + [{"rag_trace": rag_trace}]
     storage.save(user_id, session_id, messages, extra_message_data=extra_message_data)
@@ -300,6 +320,7 @@ def chat_with_agent(user_text: str, user_id: str = "default_user", session_id: s
     return {
         "response": response_content,
         "rag_trace": rag_trace,
+        "request_id": request_id,
     }
 
 
@@ -309,6 +330,7 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     架构：使用统一输出队列 + 后台任务，确保 RAG 检索步骤在工具执行期间实时推送，
     而非等待工具完成后才显示。
     """
+    request_id = uuid4().hex
     messages = storage.load(user_id, session_id)
 
     # 清理可能残留的 RAG 上下文
@@ -323,7 +345,8 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
         def put_nowait(self, step):
             output_queue.put_nowait({"type": "rag_step", "step": step})
 
-    set_rag_step_queue(_RagStepProxy())
+    set_rag_request_context(request_id)
+    set_rag_step_queue(_RagStepProxy(), request_id=request_id)
 
     if len(messages) > 50:
         summary = summarize_old_messages(model, messages[:40])
@@ -361,9 +384,9 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
 
                 if content:
                     full_response += content
-                    await output_queue.put({"type": "content", "content": content})
+                    await output_queue.put({"type": "content", "content": content, "request_id": request_id})
         except Exception as e:
-            await output_queue.put({"type": "error", "content": str(e)})
+            await output_queue.put({"type": "error", "content": str(e), "request_id": request_id})
         finally:
             # 哨兵：通知主循环 agent 已完成
             await output_queue.put(None)
@@ -391,16 +414,19 @@ async def chat_with_agent_stream(user_text: str, user_id: str = "default_user", 
     finally:
         # 正常结束或异常退出时清理
         set_rag_step_queue(None)
+        set_rag_request_context(None)
         if not agent_task.done():
              agent_task.cancel()
 
     # 获取 RAG trace
     rag_context = get_last_rag_context(clear=True)
     rag_trace = rag_context.get("rag_trace") if rag_context else None
+    if rag_trace:
+        rag_trace["request_id"] = request_id
 
     # 发送 trace 信息
     if rag_trace:
-        yield f"data: {json.dumps({'type': 'trace', 'rag_trace': rag_trace})}\n\n"
+        yield f"data: {json.dumps({'type': 'trace', 'rag_trace': rag_trace, 'request_id': request_id})}\n\n"
 
     # 发送结束信号
     yield "data: [DONE]\n\n"

@@ -1,0 +1,15 @@
+{
+  "name": "retrieval_rerank",
+  "kind": "retrieval",
+  "dataset": "lotte",
+  "variant": "hybrid_rrf_rerank",
+  "seed": 42,
+  "output_dir": "eval/outputs/retrieval",
+  "params": {
+    "candidate_k": 20,
+    "top_k": 5,
+    "retrieval_mode": "hybrid",
+    "rerank_enabled": true
+  },
+  "tags": ["official"]
+}

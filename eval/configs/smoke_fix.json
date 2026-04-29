@@ -1,0 +1,12 @@
+{
+    "name": "smoke_fix",
+    "kind": "chunking",
+    "dataset": "custom",
+    "variant": "smoke_fix",
+    "params": {
+        "retrieval_mode": "hybrid",
+        "auto_merge_enabled": true,
+        "leaf_retrieve_level": 3,
+        "auto_merge_threshold": 2
+    }
+}

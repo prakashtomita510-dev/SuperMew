@@ -1,0 +1,16 @@
+{
+  "name": "generation_baselines_no_rewrite_hotpotqa",
+  "kind": "rag",
+  "dataset": "ragbench_hotpotqa",
+  "variant": "grounded_answer_no_rewrite_hotpotqa",
+  "seed": 42,
+  "output_dir": "eval/outputs/rag",
+  "params": {
+    "judge_mode": "rule_based",
+    "temperature": 0,
+    "require_citation": true,
+    "groundedness_threshold": 0.8,
+    "rewrite_mode": "off"
+  },
+  "tags": ["official", "baseline", "comparison"]
+}

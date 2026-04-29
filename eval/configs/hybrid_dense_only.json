@@ -1,0 +1,1 @@
+{"name": "dense_only", "kind": "hybrid_tune", "dataset": "custom", "variant": "dense_only", "params": {"retrieval_mode": "hybrid", "hybrid_weights": [1.0, 0.0]}}

@@ -1,0 +1,15 @@
+{
+  "name": "chunking_silver_auto_merge_smoke",
+  "kind": "chunking_smoke",
+  "dataset": "custom_silver",
+  "variant": "auto_merge_silver_smoke",
+  "seed": 42,
+  "output_dir": "eval/outputs/smoke/chunking",
+  "params": {
+    "chunk_strategy": "multi_level",
+    "leaf_retrieve_level": 3,
+    "auto_merge_enabled": true,
+    "auto_merge_threshold": 2
+  },
+  "tags": ["smoke", "silver", "not_official"]
+}

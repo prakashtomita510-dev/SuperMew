@@ -1,0 +1,15 @@
+{
+  "name": "chunking_auto_merge_official",
+  "kind": "chunking",
+  "dataset": "custom",
+  "variant": "auto_merge",
+  "seed": 42,
+  "output_dir": "eval/outputs/chunking",
+  "params": {
+    "chunk_strategy": "multi_level",
+    "leaf_retrieve_level": 3,
+    "auto_merge_enabled": true,
+    "auto_merge_threshold": 2
+  },
+  "tags": ["official", "baseline"]
+}

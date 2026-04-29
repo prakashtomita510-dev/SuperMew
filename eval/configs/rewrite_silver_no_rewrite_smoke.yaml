@@ -1,0 +1,14 @@
+{
+  "name": "rewrite_silver_no_rewrite_smoke",
+  "kind": "rewrite_smoke",
+  "dataset": "custom_silver",
+  "variant": "no_rewrite_silver_smoke",
+  "seed": 42,
+  "output_dir": "eval/outputs/smoke/rewrite",
+  "params": {
+    "rewrite_mode": "off",
+    "auto_merge_enabled": true,
+    "auto_merge_threshold": 2
+  },
+  "tags": ["smoke", "silver", "not_official"]
+}

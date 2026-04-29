@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 class RegisterRequest(BaseModel):
@@ -42,7 +42,7 @@ class RetrievedChunk(BaseModel):
 
 class RagTrace(BaseModel):
     tool_used: bool
-    tool_name: str
+    tool_name: Optional[str] = None
     query: Optional[str] = None
     expanded_query: Optional[str] = None
     step_back_question: Optional[str] = None
@@ -61,6 +61,7 @@ class RagTrace(BaseModel):
     rerank_endpoint: Optional[str] = None
     rerank_error: Optional[str] = None
     retrieval_mode: Optional[str] = None
+    vector_backend: Optional[str] = None
     candidate_k: Optional[int] = None
     leaf_retrieve_level: Optional[int] = None
     auto_merge_enabled: Optional[bool] = None
@@ -71,6 +72,12 @@ class RagTrace(BaseModel):
     retrieved_chunks: Optional[List[RetrievedChunk]] = None
     initial_retrieved_chunks: Optional[List[RetrievedChunk]] = None
     expanded_retrieved_chunks: Optional[List[RetrievedChunk]] = None
+    generated_answer: Optional[str] = None
+    hallucination_score: Optional[str] = None
+    hallucination_retries: Optional[int] = None
+    hallucination_route: Optional[str] = None
+    grade_error: Optional[str] = None
+    stage_timings_ms: Optional[Dict[str, float]] = None
 
 
 class ChatResponse(BaseModel):

@@ -1,0 +1,16 @@
+{
+  "name": "generation_baselines_no_rewrite",
+  "kind": "rag",
+  "dataset": "ragbench",
+  "variant": "grounded_answer_no_rewrite",
+  "seed": 42,
+  "output_dir": "eval/outputs/rag",
+  "params": {
+    "judge_mode": "rule_based",
+    "temperature": 0,
+    "require_citation": true,
+    "groundedness_threshold": 0.8,
+    "rewrite_mode": "off"
+  },
+  "tags": ["official", "baseline", "comparison"]
+}

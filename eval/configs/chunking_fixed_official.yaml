@@ -1,0 +1,14 @@
+{
+  "name": "chunking_fixed_official",
+  "kind": "chunking",
+  "dataset": "custom",
+  "variant": "fixed_chunk",
+  "seed": 42,
+  "output_dir": "eval/outputs/chunking",
+  "params": {
+    "chunk_strategy": "fixed",
+    "leaf_retrieve_level": 3,
+    "auto_merge_enabled": false
+  },
+  "tags": ["official", "baseline"]
+}

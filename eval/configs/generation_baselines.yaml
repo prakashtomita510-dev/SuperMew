@@ -1,0 +1,15 @@
+{
+  "name": "generation_baselines",
+  "kind": "rag",
+  "dataset": "ragbench",
+  "variant": "grounded_answer",
+  "seed": 42,
+  "output_dir": "eval/outputs/rag",
+  "params": {
+    "judge_mode": "rule_based",
+    "temperature": 0,
+    "require_citation": true,
+    "groundedness_threshold": 0.8
+  },
+  "tags": ["official", "baseline"]
+}

@@ -127,6 +127,27 @@ class DocumentLoader:
 
         return root_chunks
 
+    def load_text(self, text: str, filename: str, metadata: dict | None = None) -> list[dict]:
+        """
+        加载纯文本并分片
+        :param text: 文本内容
+        :param filename: 虚拟文件名
+        :param metadata: 附加元数据
+        :return: 分片后的文档列表
+        """
+        base_doc = {
+            "filename": filename,
+            "file_path": "text_input",
+            "file_type": "TEXT",
+            "page_number": 0,
+            **(metadata or {})
+        }
+        return self._split_page_to_three_levels(
+            text=text.strip(),
+            base_doc=base_doc,
+            page_global_chunk_idx=0,
+        )
+
     def load_document(self, file_path: str, filename: str) -> list[dict]:
         """
         加载单个文档并分片
@@ -145,6 +166,10 @@ class DocumentLoader:
         elif file_lower.endswith((".xlsx", ".xls")):
             doc_type = "Excel"
             loader = UnstructuredExcelLoader(file_path)
+        elif file_lower.endswith((".txt", ".md")):
+            doc_type = "Text"
+            with open(file_path, "r", encoding="utf-8") as f:
+                return self.load_text(f.read(), filename, {"file_path": file_path})
         else:
             raise ValueError(f"不支持的文件类型: {filename}")
 

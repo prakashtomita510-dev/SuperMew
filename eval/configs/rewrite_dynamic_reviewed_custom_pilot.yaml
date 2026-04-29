@@ -1,0 +1,14 @@
+{
+  "name": "rewrite_dynamic_reviewed_custom_pilot",
+  "kind": "rewrite_pilot",
+  "dataset": "custom_reviewed_pilot",
+  "variant": "dynamic_rewrite",
+  "seed": 42,
+  "output_dir": "eval/outputs/pilot/rewrite",
+  "params": {
+    "rewrite_mode": "auto",
+    "auto_merge_enabled": false,
+    "auto_merge_threshold": 2
+  },
+  "tags": ["pilot", "not_official"]
+}

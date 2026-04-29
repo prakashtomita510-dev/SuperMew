@@ -1,0 +1,16 @@
+{
+  "name": "retrieval_baselines_pilot",
+  "kind": "retrieval",
+  "dataset": "lotte",
+  "variant": "dense_only",
+  "seed": 42,
+  "output_dir": "eval/outputs/retrieval_pilot",
+  "params": {
+    "candidate_k": 20,
+    "top_k": 5,
+    "rerank_enabled": false,
+    "auto_merge_enabled": false,
+    "retrieval_mode": "dense"
+  },
+  "tags": ["pilot", "baseline"]
+}

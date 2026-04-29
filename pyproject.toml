@@ -20,6 +20,8 @@ dependencies = [
     "langchain-openai>=0.1.22",
     "langgraph>=0.2.31",
     "pypdf>=4.3.1",
+    "pyyaml>=6.0.2",
+    "datasets>=3.2.0",
     "docx2txt>=0.8",
     "unstructured",
     "openpyxl",

@@ -19,11 +19,18 @@ class MilvusWriter:
         if not documents:
             return
 
-        self.milvus_manager.init_collection()
-        
-        # 先拟合语料库（用于 BM25 IDF 计算）
-        all_texts = [doc["text"] for doc in documents]
+        self.milvus_manager.init_collection(dense_dim=self.embedding_service.get_output_dim())
+
+        # 以当前向量库中的全部叶子块作为 BM25 语料基准，避免新增文档后查询词表漂移。
+        existing_docs = self.milvus_manager.query(
+            filter_expr="chunk_level == 3",
+            output_fields=["text"],
+            limit=100000,
+        )
+        existing_texts = [item.get("text", "") for item in existing_docs if item.get("text")]
+        all_texts = existing_texts + [doc["text"] for doc in documents]
         self.embedding_service.fit_corpus(all_texts)
+        self.embedding_service.save_state()
 
         total = len(documents)
         for i in range(0, total, batch_size):
@@ -47,6 +54,7 @@ class MilvusWriter:
                     "parent_chunk_id": doc.get("parent_chunk_id", ""),
                     "root_chunk_id": doc.get("root_chunk_id", ""),
                     "chunk_level": doc.get("chunk_level", 0),
+                    "pid": str(doc.get("pid", "")), # Preserve pid as string
                 }
                 for doc, dense_emb, sparse_emb in zip(batch, dense_embeddings, sparse_embeddings)
             ]

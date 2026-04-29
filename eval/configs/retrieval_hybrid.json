@@ -1,0 +1,16 @@
+{
+  "name": "retrieval_hybrid",
+  "kind": "retrieval",
+  "dataset": "lotte",
+  "variant": "hybrid",
+  "seed": 42,
+  "output_dir": "eval/outputs/retrieval",
+  "params": {
+    "candidate_k": 20,
+    "top_k": 5,
+    "rerank_enabled": false,
+    "auto_merge_enabled": false,
+    "retrieval_mode": "hybrid"
+  },
+  "tags": ["official", "hybrid"]
+}

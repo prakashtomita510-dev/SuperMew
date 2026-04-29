@@ -1,0 +1,1 @@
+{"name": "sparse_heavy", "kind": "hybrid_tune", "dataset": "custom", "variant": "sparse_heavy", "params": {"retrieval_mode": "hybrid", "hybrid_weights": [0.3, 0.7]}}
