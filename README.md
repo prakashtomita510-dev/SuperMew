@@ -158,8 +158,8 @@ uv run uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 #### 其他
 
 1. 向量嵌入：新增多模态 embedding 能力
-2. 搭建 RAG 评估体系
-3. Rerank 策略评估（top_k、candidate_k、召回/精排比例）
+2. 搭建 RAG 评估体系 --done
+3. Rerank 策略评估（top_k、candidate_k、召回/精排比例） --done
 
 ### 其他能力拓展
 
@@ -461,6 +461,13 @@ StreamingResponse(
 - **即时止损原理**：`agent_task.cancel()` 会立即在任务挂起点注入 `asyncio.CancelledError`。对于流式 LLM 请求，这会触发 `httpx` 关闭 TCP 连接。服务端（OpenAI 等）检测到 client 掉线后会立即停止推理，从而实现**真正的 Token 节省**。
 
 ## 更新日志
+
+### 2026-04-28 RAG 评测体系搭建与生成控制优化
+- **自动化评测框架建设**：新建 `eval` 目录，构建基于自定义标答的批量测试工具箱。
+- **多维度评估指标**：支持 Answer Accuracy F1、语义相似度、引用精准率 (Citation Precision) 和引用召回率 (Citation Recall)、幻觉防范评分 (Groundedness) 等评测指标。
+- **独立拒答评测**：引入独立的 `RefCor` (拒答正确率) 指标以准确评测不可回答样本。
+- **Prompt 规范强化**：修改核心 `ANSWER_PROMPT`，强制输出简体中文、去除客套废话，规范化“暂无相关信息”无答案输出。
+- **参数网格扫描**：引入扫参 (Sweep) 工作流，优化 Rerank 及各类策略的最佳组合。
 
 ### 2026-03-21 后端服务建设升级（认证 + 数据库 + 缓存）
 - 新增认证与权限模块：注册、登录、JWT、管理员权限控制。
